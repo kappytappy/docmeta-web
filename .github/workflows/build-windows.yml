@@ -1,0 +1,109 @@
+name: Build Windows exe
+
+# Produces a single double-clickable docmeta-web.exe (Python + app +
+# ExifTool bundled) and publishes it on the Releases page.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app.py"
+      - "requirements.txt"
+      - "templates/**"
+      - ".github/workflows/build-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Download ExifTool
+        shell: pwsh
+        run: |
+          try {
+            $html = (Invoke-WebRequest -Uri "https://exiftool.org/" -UseBasicParsing).Content
+            $m = [regex]::Match($html, 'Version\s+(\d+\.\d+)')
+            if ($m.Success) { $ver = $m.Groups[1].Value } else { $ver = "13.59" }
+          } catch { $ver = "13.59" }
+          # NOTE: the 32-bit build is the canonical Windows download.
+          $url = "https://sourceforge.net/projects/exiftool/files/exiftool-${ver}_32.zip/download"
+          # curl.exe is far more reliable than Invoke-WebRequest for SourceForge.
+          $ok = $false
+          for ($i = 1; $i -le 5 -and -not $ok; $i++) {
+            Write-Host "Download attempt $i of 5 ..."
+            Remove-Item exiftool.zip -ErrorAction SilentlyContinue
+            curl.exe -sSL --retry 3 --retry-all-errors --max-time 300 -o exiftool.zip $url
+            try {
+              Add-Type -AssemblyName System.IO.Compression.FileSystem
+              $z = [System.IO.Compression.ZipFile]::OpenRead("$PWD/exiftool.zip")
+              $names = @($z.Entries | ForEach-Object { $_.Name })
+              $z.Dispose()
+              $ok = $names -contains "exiftool(-k).exe"
+              if (-not $ok) { Write-Host "zip downloaded but exe entry missing" }
+            } catch {
+              Write-Host "zip validation failed, retrying..."
+              Start-Sleep 5
+            }
+          }
+          if (-not $ok) { throw "ExifTool download failed after 5 attempts" }
+          Expand-Archive exiftool.zip -DestinationPath exiftool_dl -Force
+          $exe = Get-ChildItem -Path exiftool_dl -Filter "exiftool*.exe" -Recurse |
+                 Select-Object -First 1
+          if (-not $exe) { throw "exiftool exe not found inside the zip" }
+          $exeDir = $exe.DirectoryName
+          Write-Host "exe dir: $exeDir"
+          Get-ChildItem -Path $exeDir | ForEach-Object { Write-Host "  $($_.Name)" }
+          # Stage exe + its support files (exiftool_files/) for PyInstaller.
+          # The exe needs exiftool_files/ visible from its working directory.
+          New-Item -ItemType Directory -Path stage -Force | Out-Null
+          Copy-Item $exe.FullName stage/exiftool.exe
+          Get-ChildItem -Path $exeDir -Exclude "exiftool*.exe" |
+            Copy-Item -Destination stage -Recurse -Force
+          Push-Location stage
+          .\exiftool.exe -ver
+          Pop-Location
+
+      - name: Stamp app version
+        shell: pwsh
+        run: |
+          "APP_VERSION = `"v1.0.${{ github.run_number }}`"" | Out-File -Encoding utf8 version.py
+          Get-Content version.py
+
+      - name: Build standalone exe
+        shell: pwsh
+        run: |
+          $extra = @()
+          if (Test-Path "stage/exiftool_files") {
+            $extra += "--add-data"; $extra += "stage/exiftool_files;exiftool_files"
+          }
+          pyinstaller --onefile --noconfirm --name docmeta-web `
+            --add-data "templates;templates" `
+            --add-binary "stage/exiftool.exe;." `
+            @extra app.py
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: DocMeta Web v1.0.${{ github.run_number }}
+          body: |
+            Download `docmeta-web.exe` below, double-click it - no Python or
+            ExifTool install needed. Your browser opens automatically at
+            http://127.0.0.1:5000. Close the black window to stop the app.
+
+            Note: Windows SmartScreen may warn that the app is unrecognized
+            (it isn't code-signed). Click "More info" -> "Run anyway".
+          files: dist/docmeta-web.exe

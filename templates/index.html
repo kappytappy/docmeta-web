@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DocMeta Web</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: #f4f5f7;
+         color: #1c1e21; min-height: 100vh; display: flex; flex-direction: column;
+         align-items: center; justify-content: center; padding: 24px; }
+  .card { background: #fff; border-radius: 16px; box-shadow: 0 8px 30px rgba(0,0,0,.08);
+          padding: 48px; max-width: 520px; width: 100%; text-align: center; }
+  h1 { font-size: 28px; margin-bottom: 8px; }
+  p.sub { color: #65676b; margin-bottom: 28px; font-size: 15px; }
+  #drop { border: 2px dashed #ccd0d5; border-radius: 12px; padding: 48px 24px;
+          cursor: pointer; transition: border-color .15s, background .15s; }
+  #drop:hover, #drop.over { border-color: #1877f2; background: #f0f6ff; }
+  #drop .big { font-size: 40px; margin-bottom: 12px; }
+  #drop .t { font-size: 16px; font-weight: 600; }
+  #drop .s { color: #65676b; font-size: 13px; margin-top: 6px; }
+  input[type=file] { display: none; }
+  .err { background: #fde8e8; color: #b3261e; border-radius: 8px; padding: 12px;
+         margin-bottom: 20px; font-size: 14px; }
+  .ver { position: fixed; bottom: 12px; right: 16px; color: #90949c; font-size: 12px; }
+  .ver a { color: #1877f2; text-decoration: none; margin-left: 8px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>DocMeta</h1>
+  <p class="sub">View &amp; carefully edit PDF and Word document metadata —<br>
+     author, last modified by, creation &amp; modification dates.</p>
+  {% if error %}<div class="err">{{ error }}</div>{% endif %}
+  <form id="up" action="/upload" method="post" enctype="multipart/form-data">
+    <input type="file" id="file" name="file" accept=".pdf,.docx">
+    <div id="drop">
+      <div class="big">&#128196;</div>
+      <div class="t">Drop a PDF or Word doc here</div>
+      <div class="s">or click to browse &middot; .pdf &middot; .docx</div>
+    </div>
+  </form>
+</div>
+<div class="ver">{{ app_version }}<a href="https://github.com/kappytappy/docmeta-web/releases" target="_blank" rel="noopener">Check for updates</a></div>
+<script>
+  const drop = document.getElementById('drop');
+  const input = document.getElementById('file');
+  const form = document.getElementById('up');
+  drop.addEventListener('click', () => input.click());
+  input.addEventListener('change', () => { if (input.files.length) form.submit(); });
+  ['dragenter','dragover'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave','drop'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', ev => {
+    const f = ev.dataTransfer.files[0];
+    if (!f) return;
+    if (!/\.(pdf|docx)$/i.test(f.name)) { alert('Only .pdf and .docx files are supported.'); return; }
+    input.files = ev.dataTransfer.files;
+    form.submit();
+  });
+</script>
+</body>
+</html>
