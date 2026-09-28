@@ -89,6 +89,10 @@
     <h2>Edit metadata</h2>
     <form class="edit" action="/doc/{{ uid }}/save" method="post">
       <div class="fields">
+        <div class="field">
+          <label>File name</label>
+          <input type="text" name="filename" value="{{ filename }}" autocomplete="off">
+        </div>
         {% for f in fields %}
         <div class="field">
           <label>{{ f.label }}</label>

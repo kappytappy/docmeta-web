@@ -137,10 +137,12 @@ def read_pdf_meta(path):
             val = exiftool_to_input(val)
         fields.append({"label": label, "key": key, "kind": kind,
                        "value": "" if val is None else str(val)})
-    # raw table: every tag for the curious
+    # raw table: every tag for the curious (never the tool's own version,
+    # nor the original filesystem dates — she asked those never appear)
     raw = []
     for k in sorted(info.keys()):
-        if k in ("SourceFile", "ExifTool:ExifToolVersion"):
+        if k in ("SourceFile", "ExifTool:ExifToolVersion", "File:FileCreateDate",
+                 "File:FileModifyDate", "File:FileAccessDate"):
             continue
         v = info[k]
         if isinstance(v, (dict, list)):
@@ -443,6 +445,28 @@ def _optional_dt(raw, label):
         return None
 
 
+def sanitize_filename(raw, default):
+    """Clean a user-typed file name: no paths, no illegal Windows chars,
+    and keep the original extension when she didn't type one."""
+    name = (raw or "").strip().replace("\\", "/").split("/")[-1].strip()
+    name = re.sub(r'[<>:"|?*\x00-\x1f]', "_", name).strip(" .")
+    if not name:
+        return default
+    if "." not in name:
+        name += os.path.splitext(default)[1]
+    return name
+
+
+def _maybe_rename(path, form):
+    """Apply the File name field to the stored file. Returns the new path."""
+    new_name = sanitize_filename(form.get("filename", ""), os.path.basename(path))
+    if new_name == os.path.basename(path):
+        return path
+    new_path = os.path.join(os.path.dirname(path), new_name)
+    os.rename(path, new_path)
+    return new_path
+
+
 # ----------------------------------------------------------------------------
 # routes
 # ----------------------------------------------------------------------------
@@ -518,6 +542,7 @@ def save_to_pc(uid):
         return redirect(url_for("index"))
     kind = file_kind(path)
     form = request.form
+    path = _maybe_rename(path, form)
     err = _write_meta(path, kind, form)
     if err:
         return redirect(url_for("doc", uid=uid, error=err))
@@ -548,6 +573,7 @@ def save(uid):
     if not path:
         return redirect(url_for("index"))
     kind = file_kind(path)
+    path = _maybe_rename(path, request.form)
     err = write_pdf_meta(path, request.form) if kind == "pdf" else write_docx_meta(path, request.form)
     if err:
         return redirect(url_for("doc", uid=uid, error=err))
